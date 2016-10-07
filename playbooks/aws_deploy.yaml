@@ -1,0 +1,149 @@
+---
+- name: Create and configure AWS
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    ami: ami-13be557e # Ubuntu
+    name_suffix: ubuntu
+    vpc_name: vpc_{{ name_suffix }}
+    subnet_name: sn_{{ name_suffix }}
+    rt_name: rt_{{ name_suffix }}
+    vpc_cidr_block: 172.16.0.0/16
+    subnet_cidr: 172.16.1.0/24
+    my_ip_cidr: 24
+    region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+    az: "{{ lookup('env','AWS_DEFAULT_AZ') }}"
+    keypair: "{{ lookup('env','AWS_DEFAULT_KEYPAIR') }}"
+    public_instance_count: 1
+    nat_instance_count: 2
+    instance_type: t2.micro
+  tags: aws
+  tasks:
+
+    - name: debug
+      debug: var=hostvars[inventory_hostname] verbosity=4
+
+    - name: VPC networking
+      ec2_vpc:
+        state: present
+        cidr_block: "{{ vpc_cidr_block }}"
+        region: "{{ region }}"
+        resource_tags:
+          Name: "{{ vpc_name }}"
+        internet_gateway: yes
+        wait: yes
+      register: vpc
+    
+    - name: subnet
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc_id }}"
+        cidr: "{{ subnet_cidr }}"
+        region: "{{ region }}"
+        az: "{{ az }}"
+        resource_tags:
+          Name: "{{ subnet_name }}"
+      register: subnet
+
+    - name: routing table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc_id }}"
+        region: "{{ region }}"
+        subnets:
+          - "{{ subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: igw
+        resource_tags:
+          Name: "{{ rt_name }}"
+
+
+    - name: get external IP
+      uri: url=http://checkip.amazonaws.com/ return_content=yes
+      register: external_ip
+
+    - name: security group for public instances
+      ec2_group:
+        name: sg_public
+        description: "{{ name_suffix }} SG for public instances"
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc_id }}"
+        rules:
+          - proto: tcp
+            to_port: 22
+            from_port: 22
+            cidr_ip: "{{ external_ip.content | replace('\n', '') }}/{{ my_ip_cidr }}"
+
+    - name: security group for NAT-only instances
+      ec2_group:
+        name: sg_nat
+        description: "{{ name_suffix }} SG for NAT-only instances"
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc_id }}"
+        rules:
+          - proto: tcp
+            to_port: 22
+            from_port: 22
+            cidr_ip: "{{ external_ip.content | replace('\n', '') }}/{{ my_ip_cidr }}"
+ 
+    - name: EC2 instances with public IPs
+      ec2:
+        key_name: "{{ keypair }}"
+        group: sg_public
+        instance_type: "{{ instance_type }}"
+        image: "{{ ami }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        assign_public_ip: yes
+        wait: true
+        instance_tags:
+          Group: public_instances
+        exact_count: "{{ public_instance_count }}"
+        count_tag:
+          Group: public_instances
+      register: ec2_public_instances
+    
+    - name: EC2 intances with only NAT
+      ec2:
+        key_name: "{{ keypair }}"
+        group: sg_nat
+        instance_type: "{{ instance_type }}"
+        image: "{{ ami }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        wait: true
+        instance_tags:
+          Group: nat_instances
+        exact_count: "{{ nat_instance_count }}"
+        count_tag:
+          Group: nat_instances
+      register: ec2_nat_instances
+
+    - name: gather instances
+      add_host: hostname={{ item.public_ip }} groups={{ item.tags.Group }},ec2_instances
+      with_items:
+        - "{{ ec2_public_instances.tagged_instances }}"
+        - "{{ ec2_nat_instances.tagged_instances }}"
+      changed_when: no
+
+    - name: wait for SSH on public instances
+      wait_for: host={{ item.public_dns_name }} port=22 timeout=320 state=started
+      with_items: 
+        - "{{ ec2_public_instances.tagged_instances }}"
+
+- name: bootstrap public instances for ansible
+  hosts: ec2_public_instances.tagged_instances
+  remote_user: ubuntu
+  gather_facts: no
+  become: yes
+  tags: bootstrap
+  pre_tasks:
+
+    - name: Verify python installed
+      raw: dpkg -s python-simplejson > /dev/null 2>&1
+      register: python_installed
+      ignore_errors: True
+
+    - name: Install python
+      raw: apt-get -y install python python-simplejson
+      when: python_installed|failed
