@@ -72,7 +72,7 @@
           - proto: tcp
             to_port: 22
             from_port: 22
-            cidr_ip: "{{ external_ip.content | replace('\n', '') }}/{{ my_ip_cidr }}"
+            cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
 
     - name: security group for NAT-only instances
       ec2_group:
@@ -84,7 +84,7 @@
           - proto: tcp
             to_port: 22
             from_port: 22
-            cidr_ip: "{{ external_ip.content | replace('\n', '') }}/{{ my_ip_cidr }}"
+            cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
  
     - name: EC2 instances with public IPs
       ec2:
