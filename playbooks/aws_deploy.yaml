@@ -21,10 +21,7 @@
   tags: aws
   tasks:
 
-    - name: debug
-      debug: var=hostvars[inventory_hostname] verbosity=4
-
-    - name: VPC networking
+    - name: VPC network
       ec2_vpc:
         state: present
         cidr_block: "{{ vpc_cidr_block }}"
@@ -57,12 +54,11 @@
         resource_tags:
           Name: "{{ rt_name }}"
 
-
     - name: get external IP
       uri: url=http://checkip.amazonaws.com/ return_content=yes
       register: external_ip
 
-    - name: security group for public instances
+    - name: SG for public instances
       ec2_group:
         name: sg_public
         description: "{{ name_suffix }} SG for public instances"
@@ -74,7 +70,7 @@
             from_port: 22
             cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
 
-    - name: security group for NAT-only instances
+    - name: SG for NAT-only instances
       ec2_group:
         name: sg_nat
         description: "{{ name_suffix }} SG for NAT-only instances"
@@ -103,7 +99,7 @@
           Group: public_instances
       register: ec2_public_instances
     
-    - name: EC2 intances with only NAT
+    - name: EC2 instances with only NAT
       ec2:
         key_name: "{{ keypair }}"
         group: sg_nat
@@ -139,11 +135,11 @@
   tags: bootstrap
   pre_tasks:
 
-    - name: Verify python installed
+    - name: check python
       raw: dpkg -s python-simplejson > /dev/null 2>&1
       register: python_installed
       ignore_errors: True
 
-    - name: Install python
+    - name: install python
       raw: apt-get -y install python python-simplejson
       when: python_installed|failed
