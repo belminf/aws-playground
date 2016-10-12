@@ -128,7 +128,7 @@
         - "{{ ec2_public_instances.tagged_instances }}"
 
 - name: bootstrap public instances for ansible
-  hosts: ec2_public_instances.tagged_instances
+  hosts: public_instances
   remote_user: ubuntu
   gather_facts: no
   become: yes
