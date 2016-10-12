@@ -4,7 +4,9 @@
   connection: local
   gather_facts: no
   vars:
-    ami: ami-13be557e # Ubuntu
+    ami: ami-2d39803a     # Ubuntu 14.04
+    # ami: ami-c481fad3   # Amazon Linux 2016.09.0
+    # ami: ami-2051294a   # RHEL 7.2
     name_suffix: ubuntu
     vpc_name: vpc_{{ name_suffix }}
     subnet_name: sn_{{ name_suffix }}
