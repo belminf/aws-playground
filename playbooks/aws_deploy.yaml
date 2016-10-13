@@ -7,10 +7,10 @@
     ami: ami-2d39803a     # Ubuntu 14.04
     # ami: ami-c481fad3   # Amazon Linux 2016.09.0
     # ami: ami-2051294a   # RHEL 7.2
-    name_suffix: ubuntu
-    vpc_name: vpc_{{ name_suffix }}
-    subnet_name: sn_{{ name_suffix }}
-    rt_name: rt_{{ name_suffix }}
+    project: ubuntu
+    vpc_name: vpc_{{ project }}
+    subnet_name: sn_{{ project }}
+    rt_name: rt_{{ project }}
     vpc_cidr_block: 172.16.0.0/16
     subnet_cidr: 172.16.1.0/24
     my_ip_cidr: 24
@@ -30,6 +30,7 @@
         region: "{{ region }}"
         resource_tags:
           Name: "{{ vpc_name }}"
+          Project: "{{ project }}"
         internet_gateway: yes
         wait: yes
       register: vpc
@@ -42,6 +43,7 @@
         az: "{{ az }}"
         resource_tags:
           Name: "{{ subnet_name }}"
+          Project: "{{ project }}"
       register: subnet
 
     - name: routing table
@@ -55,6 +57,7 @@
             gateway_id: igw
         resource_tags:
           Name: "{{ rt_name }}"
+          Project: "{{ project }}"
 
     - name: get external IP
       uri: url=http://checkip.amazonaws.com/ return_content=yes
@@ -62,8 +65,8 @@
 
     - name: SG for public instances
       ec2_group:
-        name: sg_public
-        description: "{{ name_suffix }} SG for public instances"
+        name: sg_{{ project }}_public
+        description: "{{ project }} SG for public instances"
         region: "{{ region }}"
         vpc_id: "{{ vpc.vpc_id }}"
         rules:
@@ -71,11 +74,12 @@
             to_port: 22
             from_port: 22
             cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
+      register: sg_public
 
     - name: SG for NAT-only instances
       ec2_group:
-        name: sg_nat
-        description: "{{ name_suffix }} SG for NAT-only instances"
+        name: sg_{{ project }}_nat
+        description: "{{ project }} SG for NAT-only instances"
         region: "{{ region }}"
         vpc_id: "{{ vpc.vpc_id }}"
         rules:
@@ -83,11 +87,23 @@
             to_port: 22
             from_port: 22
             cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
+      register: sg_nat
+
+    - name: tag SGs
+      ec2_tag:
+        resource: "{{ item.sg.group_id }}"
+        tags:
+          Name: sg_{{ project }}_{{ item.type }}
+          Project: "{{ project }}"
+      with_items:
+        - { type: 'public', sg: "{{ sg_public }}" }
+        - { type: 'nat', sg: "{{ sg_nat }}" }
+
  
     - name: EC2 instances with public IPs
       ec2:
         key_name: "{{ keypair }}"
-        group: sg_public
+        group: sg_{{ project }}_public
         instance_type: "{{ instance_type }}"
         image: "{{ ami }}"
         region: "{{ region }}"
@@ -95,26 +111,28 @@
         assign_public_ip: yes
         wait: true
         instance_tags:
-          Group: public_instances
+          Group: "{{ project }}_public_instances"
+          Project: "{{ project }}"
         exact_count: "{{ public_instance_count }}"
         count_tag:
-          Group: public_instances
+          Group: "{{ project }}_public_instances"
       register: ec2_public_instances
     
     - name: EC2 instances with only NAT
       ec2:
         key_name: "{{ keypair }}"
-        group: sg_nat
+        group: sg_{{ project }}_nat
         instance_type: "{{ instance_type }}"
         image: "{{ ami }}"
         region: "{{ region }}"
         vpc_subnet_id: "{{ subnet.subnet.id }}"
         wait: true
         instance_tags:
-          Group: nat_instances
+          Group: "{{ project }}_nat_instances"
+          Project: "{{ project }}"
         exact_count: "{{ nat_instance_count }}"
         count_tag:
-          Group: nat_instances
+          Group: "{{ project }}_nat_instances"
       register: ec2_nat_instances
 
     - name: gather instances
@@ -130,7 +148,7 @@
         - "{{ ec2_public_instances.tagged_instances }}"
 
 - name: bootstrap public instances for ansible
-  hosts: public_instances
+  hosts: "{{ project }}_public_instances"
   remote_user: ubuntu
   gather_facts: no
   become: yes
