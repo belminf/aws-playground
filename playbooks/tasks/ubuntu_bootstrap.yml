@@ -12,5 +12,5 @@
       ignore_errors: True
 
     - name: install python
-      raw: apt-get -y install python python-simplejson
+      raw: apt-get update; apt-get -y install python python-simplejson
       when: python_installed|failed
