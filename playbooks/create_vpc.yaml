@@ -1,0 +1,148 @@
+---
+- name: Create and configure a VPC with bastion box
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+
+    # OS to use
+    ami: ami-fd6e3bea # Ubuntu 16.04 LTS
+
+    # Suffix
+    project: ubuntu
+    vpc_name: vpc_{{ project }}
+
+    # Networking
+    vpc_cidr_block: 172.16.0.0/16
+    my_ip_cidr: 24
+    
+    # Region and AZ
+    region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+    az: "{{ lookup('env','AWS_DEFAULT_AZ') }}"
+
+    # Bastion 
+    keypair: "{{ lookup('env','AWS_DEFAULT_KEYPAIR') }}"
+    instance_type: t2.micro
+    sn_bastion: sn_{{ project }}_bastion
+    rt_bastion: rt_{{ project }}_bastion
+    sg_bastion: sg_{{ project }}_bastion
+    cidr_bastion: 172.16.0.0/24
+    dns_bastion: "{{ project }}-bastion.{{ dns_zone }}"
+
+  tags: aws
+  tasks:
+
+    - name: VPC configuration
+      ec2_vpc:
+        state: present
+        cidr_block: "{{ vpc_cidr_block }}"
+        region: "{{ region }}"
+        resource_tags:
+          Name: "{{ vpc_name }}"
+          Project: "{{ project }}"
+        internet_gateway: yes
+        wait: yes
+      register: vpc
+    
+    - name: bastion subnet
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc_id }}"
+        cidr: "{{ cidr_bastion }}"
+        region: "{{ region }}"
+        az: "{{ az }}"
+        resource_tags:
+          Name: "{{ sn_bastion }}"
+          Project: "{{ project }}"
+      register: subnet
+
+    - name: routing table
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc_id }}"
+        region: "{{ region }}"
+        subnets:
+          - "{{ subnet.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: igw
+        resource_tags:
+          Name: "{{ rt_bastion }}"
+          Project: "{{ project }}"
+
+    - name: get external IP
+      uri: url=http://checkip.amazonaws.com/ return_content=yes
+      register: external_ip
+
+    - name: SG for bastion
+      ec2_group:
+        name: "{{ sg_bastion }}"
+        description: "{{ project }} SG for bastion"
+        region: "{{ region }}"
+        vpc_id: "{{ vpc.vpc_id }}"
+        rules:
+          - proto: tcp
+            to_port: 22
+            from_port: 22
+            cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
+      register: security_group
+
+    - name: tag SG
+      ec2_tag:
+        resource: "{{ security_group.group_id }}"
+        tags:
+          Name: "{{ sg_bastion }}"
+          Project: "{{ project }}"
+ 
+    - name: EC2 bastion instance
+      ec2:
+        key_name: "{{ keypair }}"
+        group: "{{ sg_bastion }}"
+        instance_type: "{{ instance_type }}"
+        image: "{{ ami }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        assign_public_ip: yes
+        wait: true
+        instance_tags:
+          Group: "{{ project }}_bastion"
+          Project: "{{ project }}"
+        exact_count: 1
+        count_tag:
+          Group: "{{ project }}_bastion"
+      register: bastion_instance
+
+    - name: Route53 DNS record
+      route53:
+        command: create
+        zone: "{{ dns_zone }}"
+        record: "{{ dns_bastion }}"
+        type: A
+        value: "{{ bastion_instance.tagged_instances[0].public_ip }}"
+        wait: yes
+    
+    - name: gather instance
+      add_host: hostname={{ item.public_ip }} groups={{ item.tags.Group }},new_ec2_instances
+      with_items:
+        - "{{ bastion_instance.tagged_instances }}"
+      changed_when: no
+
+    - name: wait for SSH
+      wait_for: host={{ item.public_dns_name }} port=22 timeout=320 state=started
+      with_items: 
+        - "{{ bastion_instance.tagged_instances }}"
+
+- name: bootstrap instances for ansible
+  hosts: new_ec2_instances
+  remote_user: ubuntu
+  gather_facts: no
+  become: yes
+  tags: bootstrap
+  pre_tasks:
+
+    - name: check python
+      raw: dpkg -s python-simplejson > /dev/null 2>&1
+      register: python_installed
+      ignore_errors: True
+
+    - name: install python
+      raw: apt-get -y install python python-simplejson
+      when: python_installed|failed
