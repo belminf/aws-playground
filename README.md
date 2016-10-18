@@ -33,3 +33,5 @@ Import aliases:
 
 # AMIs
 Reference the [console's listing](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#LaunchInstanceWizard:) for some popular choices.
+
+Also, there's [Ubutu's AMI locator page](https://cloud-images.ubuntu.com/locator/ec2/).
