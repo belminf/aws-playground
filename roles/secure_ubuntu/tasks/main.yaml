@@ -1,0 +1,30 @@
+---
+- name: sudoers for authkey-only auth
+  lineinfile: "dest=/etc/sudoers regexp='^%sudo' line='%sudo ALL=(ALL:ALL) NOPASSWD: ALL'"
+
+- name: add admin user accounts
+  user: name={{ admin_user }} shell=/bin/bash groups=sudo
+
+- name: add pubkeys from GitHub
+  authorized_key: user={{ admin_user }} key=https://github.com/{{ github_user }}.keys
+
+- name: install fail2ban
+  apt: name=fail2ban update_cache=yes state=latest
+  notify: restart fail2ban
+
+- name: ensure fail2ban enabled
+  service: name=fail2ban enabled=yes
+
+- name: add SSH ufw rule
+  ufw: name=OpenSSH rule=allow port=22
+
+- name: set default ufw policy
+  ufw: state=enabled policy=reject
+
+- name: disable SSH password auth
+  lineinfile: dest=/etc/ssh/sshd_config regexp='^PasswordAuthentication ' line='PasswordAuthentication no'
+  notify: restart SSH
+
+- name: disable SSH root logins
+  lineinfile: dest=/etc/ssh/sshd_config regexp='^PermitRootLogin ' line='PermitRootLogin no'
+  notify: restart SSH

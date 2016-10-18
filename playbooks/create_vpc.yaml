@@ -117,6 +117,7 @@
         record: "{{ dns_bastion }}"
         type: A
         value: "{{ bastion_instance.tagged_instances[0].public_ip }}"
+        overwrite: yes
         wait: yes
     
     - name: gather instance
@@ -130,19 +131,10 @@
       with_items: 
         - "{{ bastion_instance.tagged_instances }}"
 
-- name: bootstrap instances for ansible
-  hosts: new_ec2_instances
-  remote_user: ubuntu
-  gather_facts: no
+- include: tasks/ubuntu_bootstrap.yml hosts=new_ec2_instances
+
+- hosts: new_ec2_instances
+  user: ubuntu
   become: yes
-  tags: bootstrap
-  pre_tasks:
-
-    - name: check python
-      raw: dpkg -s python-simplejson > /dev/null 2>&1
-      register: python_installed
-      ignore_errors: True
-
-    - name: install python
-      raw: apt-get -y install python python-simplejson
-      when: python_installed|failed
+  roles:
+    - secure_ubuntu
