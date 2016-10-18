@@ -35,3 +35,9 @@ Import aliases:
 Reference the [console's listing](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#LaunchInstanceWizard:) for some popular choices.
 
 Also, there's [Ubutu's AMI locator page](https://cloud-images.ubuntu.com/locator/ec2/).
+
+# Examples
+
+Creating a VPC:
+
+    $ ansible-playbook -e 'project=blog instance_type=m3.xlarge admin_user=tito github_user=belminf dns_zone=aws.example.com' playbooks/create_vpc.yaml
