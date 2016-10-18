@@ -26,6 +26,7 @@
     sn_bastion: sn_{{ project }}_bastion
     rt_bastion: rt_{{ project }}_bastion
     sg_bastion: sg_{{ project }}_bastion
+    iam_bastion: "{{ project }}_bastion"
     cidr_bastion: 172.16.0.0/24
     dns_bastion: "{{ project }}-bastion.{{ dns_zone }}"
 
@@ -91,12 +92,19 @@
         tags:
           Name: "{{ sg_bastion }}"
           Project: "{{ project }}"
+    
+    - name: IAM role for bastion
+      iam:
+        iam_type: role
+        name: "{{ iam_bastion }}"
+        state: present
  
     - name: EC2 bastion instance
       ec2:
         key_name: "{{ keypair }}"
         group: "{{ sg_bastion }}"
         instance_type: "{{ instance_type }}"
+        instance_profile_name: "{{ iam_bastion }}"
         image: "{{ ami }}"
         region: "{{ region }}"
         vpc_subnet_id: "{{ subnet.subnet.id }}"
