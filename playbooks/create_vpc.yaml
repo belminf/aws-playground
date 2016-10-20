@@ -195,4 +195,4 @@
   user: ubuntu
   become: yes
   roles:
-    - secure_ubuntu
+    - ubuntu_hardened
