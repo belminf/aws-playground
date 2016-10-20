@@ -159,6 +159,7 @@
         wait: true
         instance_tags:
           Name: "{{ project }}_bastion"
+          Group: bastion
           Project: "{{ project }}"
         exact_count: 1
         count_tag:
