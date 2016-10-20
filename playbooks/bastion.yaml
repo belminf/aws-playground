@@ -1,0 +1,7 @@
+---
+- name: configure bastion user
+  hosts: tag_Name_personal_bastion
+  roles:
+    - python
+    - bash
+    - vim
