@@ -1,5 +1,11 @@
-- name: install virtualenv
+- name: install pip
   apt: name={{ item }} state=latest
+  become: yes
+  with_items:
+    - python-pip
+
+- name: install virtaulenv
+  pip: name={{ item }} state=latest
   become: yes
   with_items:
     - virtualenv
