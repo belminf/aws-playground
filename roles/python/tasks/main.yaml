@@ -1,0 +1,6 @@
+- name: install virtualenv
+  apt: name={{ item }} state=latest
+  become: yes
+  with_items:
+    - virtualenv
+    - virtualenvwrapper
