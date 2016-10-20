@@ -18,7 +18,6 @@
     subnet_prefix: "172.16"
     subnet_private_inc: 10
     subnet_cidr: 24
-    my_ip_cidr: 24
     
     # Region and AZ
     region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
@@ -121,10 +120,6 @@
         - "{{ nat_gateway_ids }}"
         - "{{ zone_prefixes }}"
     
-    - name: get external IP
-      uri: url=http://checkip.amazonaws.com/ return_content=yes
-      register: external_ip
-
     - name: SG for bastion
       ec2_group:
         name: "{{ sg_bastion }}"
@@ -135,7 +130,7 @@
           - proto: tcp
             to_port: 22
             from_port: 22
-            cidr_ip: "{{ [external_ip.content | replace('\n', ''), my_ip_cidr] | join('/') | ipaddr(0) }}"
+            cidr_ip: "0.0.0.0/0"
       register: security_group
 
     - name: tag SG
