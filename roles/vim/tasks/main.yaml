@@ -1,0 +1,22 @@
+- name: update apt cache
+  apt: update_cache=yes
+  become: yes
+  changed_when: no
+
+- name: install vim requirements
+  apt: name={{ item }} state=latest
+  become: yes
+  with_items:
+    - vim
+    - silversearcher-ag
+
+- name: my vim config
+  git: repo=ssh://git@github.com/belminf/dotvim.git dest=~/.vim accept_hostkey=yes update=yes recursive=yes
+  register: vim_git
+
+- name: link new vim
+  file: src=~/.vim/vimrc dest=~/.vimrc state=link
+
+- name: install vim plugins
+  command: vim +PluginInstall +qall
+  when: vim_git.changed
