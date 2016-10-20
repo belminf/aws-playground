@@ -18,6 +18,7 @@
     
     # Region and AZ
     region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+    zone_prefixes: " {{ lookup('env', 'AWS_DEFAULT_ZONES') | split(',') }}"
 
     # Bastion 
     ami: ami-fd6e3bea # Ubuntu 16.04 LTS
@@ -32,15 +33,6 @@
 
   tags: aws
   tasks:
-
-    - name: get AZs via AWS CLI
-      local_action: shell aws ec2 describe-availability-zones --region=us-east-1 --query 'AvailabilityZones[].ZoneName' --output text | sed 's/{{ region }}//g'
-      register: az_output
-      changed_when: no
-
-    - name: extract AZs from output
-      set_fact:
-        az_suffixes: "{{ az_output.stdout.split('\t') }}"
 
     - name: VPC configuration
       ec2_vpc:
@@ -63,7 +55,7 @@
         resource_tags:
           Name: "sn_{{ project }}_{{ region }}{{ item[1] }}_public"
           Project: "{{ project }}"
-      with_indexed_items: "{{ az_suffixes }}"
+      with_indexed_items: "{{ zone_prefixes }}"
       register: public_subnets
 
     - name: gather public subnets
@@ -79,7 +71,7 @@
         resource_tags:
           Name: "sn_{{ project }}_{{ region }}{{ item[1] }}_private"
           Project: "{{ project }}"
-      with_indexed_items: "{{ az_suffixes }}"
+      with_indexed_items: "{{ zone_prefixes }}"
       register: private_subnets
 
     - name: gather private subnets
@@ -128,7 +120,7 @@
       with_together:
         - "{{ private_subnet_ids }}"
         - "{{ nat_gateway_ids }}"
-        - "{{ az_suffixes }}"
+        - "{{ zone_prefixes }}"
     
     - name: get external IP
       uri: url=http://checkip.amazonaws.com/ return_content=yes
