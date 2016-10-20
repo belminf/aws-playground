@@ -23,7 +23,7 @@ Configuration for AWS CLI:
 Required for the AWS playbook:
 
     AWS_DEFAULT_REGION="us-east-1"
-    AWS_DEFAULT_AZ="us-east-1a"
+    AWS_DEFAULT_ZONES="b,d"
     AWS_DEFAULT_KEYPAIR="my_ssh_keypair_name"
 
 # Aliases
