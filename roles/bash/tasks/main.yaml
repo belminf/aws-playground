@@ -1,4 +1,5 @@
-- git: repo=ssh://git@github.com/belminf/dotbash.git dest=~/.bash accept_hostkey=yes
+- name: my bash config
+  git: repo=ssh://git@github.com/belminf/dotbash.git dest=~/.bash accept_hostkey=yes update=yes
 
 - name: link new bashrc
   file: src=~/.bash/rc.sh dest=~/.bashrc state=link
