@@ -1,4 +1,5 @@
 awscli
-ansible
+ansible>=2.2
 boto
+boto3
 netaddr

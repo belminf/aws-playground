@@ -5,22 +5,22 @@
   gather_facts: no
   vars:
 
-    # OS to use
-    ami: ami-fd6e3bea # Ubuntu 16.04 LTS
-
     # Suffix
     project: ubuntu
     vpc_name: vpc_{{ project }}
 
     # Networking
-    vpc_cidr_block: 172.16.0.0/16
     my_ip_cidr: 24
+    vpc_cidr_block: "172.16.0.0/16"
+    sn_blocks_prefix: "172.16"
+    sn_private_inc: 10
+    sn_cidr: 24
     
     # Region and AZ
     region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
-    az: "{{ lookup('env','AWS_DEFAULT_AZ') }}"
 
     # Bastion 
+    ami: ami-fd6e3bea # Ubuntu 16.04 LTS
     keypair: "{{ lookup('env','AWS_DEFAULT_KEYPAIR') }}"
     instance_type: t2.micro
     sn_bastion: sn_{{ project }}_bastion
@@ -32,6 +32,15 @@
 
   tags: aws
   tasks:
+
+    - name: get AZs via AWS CLI
+      local_action: shell aws ec2 describe-availability-zones --region=us-east-1 --query 'AvailabilityZones[].ZoneName' --output text | sed 's/{{ region }}//g'
+      register: az_output
+      changed_when: no
+
+    - name: extract AZs from output
+      set_fact:
+        az_suffixes: "{{ az_output.stdout.split('\t') }}"
 
     - name: VPC configuration
       ec2_vpc:
@@ -45,30 +54,82 @@
         wait: yes
       register: vpc
     
-    - name: bastion subnet
+    - name: create public subnets
       ec2_vpc_subnet:
         vpc_id: "{{ vpc.vpc_id }}"
-        cidr: "{{ cidr_bastion }}"
+        cidr: "{{ '%s.%s/%s' | format(sn_blocks_prefix, item[0] + 1, sn_cidr) | ipaddr(0)}}"
         region: "{{ region }}"
-        az: "{{ az }}"
+        az: "{{ region }}{{ item[1] }}"
         resource_tags:
-          Name: "{{ sn_bastion }}"
+          Name: "sn_{{ project }}_{{ region }}{{ item[1] }}_public"
           Project: "{{ project }}"
-      register: subnet
+      with_indexed_items: "{{ az_suffixes }}"
+      register: public_subnets
 
-    - name: routing table
+    - name: gather public subnets
+      set_fact:
+        public_subnet_ids: "{{ public_subnets.results | map(attribute='subnet.id') | list }}"
+
+    - name: create private subnets
+      ec2_vpc_subnet:
+        vpc_id: "{{ vpc.vpc_id }}"
+        cidr: "{{ '%s.%s/%s' | format(sn_blocks_prefix, item[0] + 1 + sn_private_inc, sn_cidr) | ipaddr(0)}}"
+        region: "{{ region }}"
+        az: "{{ region }}{{ item[1] }}"
+        resource_tags:
+          Name: "sn_{{ project }}_{{ region }}{{ item[1] }}_private"
+          Project: "{{ project }}"
+      with_indexed_items: "{{ az_suffixes }}"
+      register: private_subnets
+
+    - name: gather private subnets
+      set_fact:
+        private_subnet_ids: "{{ private_subnets.results | map(attribute='subnet.id') | list }}"
+
+
+    - name: routing table for public subnets
       ec2_vpc_route_table:
         vpc_id: "{{ vpc.vpc_id }}"
         region: "{{ region }}"
-        subnets:
-          - "{{ subnet.subnet.id }}"
+        subnets: "{{ public_subnet_ids }}"
         routes:
           - dest: 0.0.0.0/0
             gateway_id: igw
         resource_tags:
-          Name: "{{ rt_bastion }}"
+          Name: "rt_{{ project }}_public"
           Project: "{{ project }}"
 
+    - name: NAT gateways
+      ec2_vpc_nat_gateway:
+        state: present
+        subnet_id: "{{ item }}"
+        wait: yes
+        region: "{{ region }}"
+        if_exist_do_not_create: true
+      with_items: "{{ public_subnet_ids }}"
+      register: nat_gateways
+
+    - name: gather NAT gateways
+      set_fact:
+        nat_gateway_ids: "{{ nat_gateways.results | map(attribute='nat_gateway_id') | list }}"
+
+    - name: routing table for private subnets
+      ec2_vpc_route_table:
+        vpc_id: "{{ vpc.vpc_id }}"
+        region: "{{ region }}"
+        subnets:
+          - "{{ item[0] }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ item[1] }}"
+        resource_tags:
+          Name: "rt_{{ project }}_private_{{ region }}{{ item[2] }}"
+          Project: "{{ project }}"
+      with_together:
+        - "{{ private_subnet_ids }}"
+        - "{{ nat_gateway_ids }}"
+        - "{{ az_suffixes }}"
+    
     - name: get external IP
       uri: url=http://checkip.amazonaws.com/ return_content=yes
       register: external_ip
