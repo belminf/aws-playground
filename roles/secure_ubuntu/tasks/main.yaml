@@ -8,8 +8,12 @@
 - name: add pubkeys from GitHub
   authorized_key: user={{ admin_user }} key=https://github.com/{{ github_user }}.keys
 
+- name: update apt cache
+  apt: update_cache=yes
+  changed_when: no
+
 - name: install fail2ban
-  apt: name=fail2ban update_cache=yes state=latest
+  apt: name=fail2ban state=latest
   notify: restart fail2ban
 
 - name: ensure fail2ban enabled
