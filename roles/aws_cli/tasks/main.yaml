@@ -1,0 +1,54 @@
+---
+- name: install aws-cli and requirements
+  pip: name={{ item }} state=latest
+  become: yes
+  with_items:
+    - awscli
+    - boto
+
+- name: aws aliases
+  git: repo=ssh://git@github.com/belminf/aws-aliases.git dest=~/.aws-aliases accept_hostkey=yes update=yes
+
+- name: link aws aliases
+  file: src=~/.aws-aliases/aliases.sh dest=~/.bash/src/local-aws.sh state=link
+
+- name: get EC2 IAM role
+  shell: curl http://169.254.169.254/latest/meta-data/iam/info 2> /dev/null | jq .InstanceProfileArn | sed 's/"//g' | cut -d '/' -f 2
+  args:
+    warn: no
+  register: iam_role_command
+  changed_when: no
+
+- name: assign policy to IAM role
+  local_action: iam_policy
+  args:
+    state: present
+    iam_type: role
+    iam_name: "{{ iam_role_command.stdout }}"
+    policy_name: EC2_Access_For_{{ iam_role_command.stdout }}
+    policy_json: |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "ec2:*",
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": "elasticloadbalancing:*",
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": "cloudwatch:*",
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": "autoscaling:*",
+              "Resource": "*"
+            }
+          ]
+        }
