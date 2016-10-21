@@ -26,11 +26,6 @@ Required for the AWS playbook:
     AWS_DEFAULT_ZONES="b,d"
     AWS_DEFAULT_KEYPAIR="my_ssh_keypair_name"
 
-# Aliases
-Import aliases:
-
-    $ . aliases.sh
-
 # AMIs
 Reference the [console's listing](https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#LaunchInstanceWizard:) for some popular choices.
 
