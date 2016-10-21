@@ -10,7 +10,19 @@
   git: repo=ssh://git@github.com/belminf/aws-aliases.git dest=~/.aws-aliases accept_hostkey=yes update=yes
 
 - name: link aws aliases
-  file: src=~/.aws-aliases/aliases.sh dest=~/.bash/src/local-aws.sh state=link
+  file: src=~/.aws-aliases/aliases.sh dest=~/.bash/src/local-aws_aliases.sh state=link
+
+- name: get EC2 region
+  shell: curl http://169.254.169.254/latest/dynamic/instance-identity/document 2> /dev/null | jq '.region'
+  args:
+    warn: no
+  register: ec2_region_command
+  changed_when: no
+
+- name: set default EC2 region
+  copy:
+    content: "export AWS_DEFAULT_REGION={{ ec2_region_command.stdout }}"
+    dest: ~/.bash/src/local-aws_region.sh
 
 - name: get EC2 IAM role
   shell: curl http://169.254.169.254/latest/meta-data/iam/info 2> /dev/null | jq .InstanceProfileArn | sed 's/"//g' | cut -d '/' -f 2
