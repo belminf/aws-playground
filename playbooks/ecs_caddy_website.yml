@@ -1,0 +1,170 @@
+---
+- name: create ECS cluster with Caddy website
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+
+    # Required
+    # - cluster_name: cluster
+    # - website_git_src: git URL (https)
+    # - website_dns: Web site DNS
+    # - subnets: could be private if behind ELB
+    # - project
+
+    # Defaults from environment
+    region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+    keypair: "{{ lookup('env','AWS_DEFAULT_KEYPAIR') }}"
+
+    # Sane defaults
+    instance_type: t2.micro
+    assign_public_ip: no
+
+    # AMI: View https://docs.aws.amazon.com/AmazonECS/latest/developerguide/launch_container_instance.html
+    ami: ami-40286957 # us-east1
+
+    # Names for stuff
+    suffix: "{{ project }}_ecs_{{ cluster_name }}"
+    lc: "lc_{{ suffix }}"
+    asg: "asg_{{ suffix }}"
+    sg: "sg_{{ suffix }}"
+    iam: "{{ suffix }}"
+
+  tasks:
+
+    # Get VPC and subnets
+    - name: get VPN subnets
+      ec2_vpc_subnet_facts:
+        filters:
+          "tag:Project": "{{ project }}"
+          "tag:Name": "{{ item }}"
+      with_items: "{{ subnets }}"
+      register: project_subnets
+      changed_when: no
+
+    - name: set VPC fact
+      set_fact:
+        vpc_id: "{{ project_subnets.results[0].subnets[0].vpc_id }}"
+      changed_when: no
+           
+    - name: set subnet fact
+      set_fact:
+        subnet_ids: "{{ subnet_ids|default([]) + item.subnets | map(attribute='id') | list }}"
+      with_items: "{{ project_subnets.results }}"
+      changed_when: no
+
+
+    # Create security group
+    - name: SG for ECS cluster
+      ec2_group:
+        name: "{{ sg }}"
+        description: "{{ project }} SG for ECS cluster {{ cluster_name }}"
+        region: "{{ region }}"
+        vpc_id: "{{ vpc_id }}"
+        rules:
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            group_name: sg_{{ project }}_bastion
+
+      register: security_group
+
+    - name: tag SG
+      ec2_tag:
+        resource: "{{ security_group.group_id }}"
+        tags:
+          Name: "{{ sg }}"
+          Project: "{{ project }}"
+
+    # Create IAM role
+    - name: IAM role
+      iam:
+        iam_type: role
+        name: "{{ iam }}"
+        state: present
+
+    - name: IAM policy
+      iam_policy:
+        state: present
+        iam_type: role
+        iam_name: "{{ iam }}"
+        policy_name: ECSAccessForEC2
+        policy_json: |
+          {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:CreateCluster",
+                    "ecs:DeregisterContainerInstance",
+                    "ecs:DiscoverPollEndpoint",
+                    "ecs:Poll",
+                    "ecs:RegisterContainerInstance",
+                    "ecs:StartTelemetrySession",
+                    "ecs:Submit*",
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:BatchGetImage",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            } 
+ 
+    - name: ECS cluster
+      ecs_cluster:
+        state: present
+        name: "{{ cluster_name }}"
+
+    # Create launch config that adds to the ECS cluster
+    - name: launch config
+      ec2_lc:
+        name: "{{ lc }}"
+        image_id: "{{ ami }}"
+        key_name: "{{ keypair }}"
+        security_groups: "{{ security_group.group_id }}"
+        instance_type: "{{ instance_type }}"
+        assign_public_ip: "{{ assign_public_ip }}"
+        instance_profile_name: "{{ iam }}"
+        user_data: |
+          #!/bin/bash
+          echo ECS_CLUSTER={{ cluster_name }} | sudo tee -a /etc/ecs/ecs.config
+    
+    # Create ASG
+    - name: ASG
+      ec2_asg:
+        name: "{{ asg }}"
+        launch_config_name: "{{ lc }}"
+        max_size: 2
+        min_size: 1
+        vpc_zone_identifier: "{{ subnet_ids }}"
+        tags:
+          - Project: "{{ project }}"
+    
+    # Define task
+    - name: define Caddy task
+      ecs_taskdefinition:
+        state: present
+        containers:
+          - name: caddy
+            essential: true
+            image: zzrot/alpine-caddy
+            memory: 1024
+            cpu: 2
+            portMappings:
+              - containerPort: 80
+                hostPort: 80
+              - containerPort: 443
+                hostPort: 443
+        family: caddy
+
+
+    # Run task
+    
+    # Create ELB
+    
+    # Create Route 53 record
